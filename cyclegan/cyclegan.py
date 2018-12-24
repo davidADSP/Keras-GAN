@@ -169,7 +169,9 @@ class CycleGAN():
         y = R_k(y, 256)
         y = u_k(y, 128)
         y = u_k(y, 64)
-        output_img = c7s1_k(y, 3)
+        y = c7s1_k(y, 3)
+        y = Activation('tanh')(y)
+        output_img = y
 
    
         return Model(d0, output_img)
