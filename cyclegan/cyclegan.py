@@ -4,9 +4,9 @@ import scipy
 from keras.datasets import mnist
 from keras_contrib.layers.normalization import InstanceNormalization
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
-from keras.layers import BatchNormalization, Activation, ZeroPadding2D
+from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add
 from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.convolutional import UpSampling2D, Conv2D
+from keras.layers.convolutional import UpSampling2D, Conv2D, Conv2DTranspose
 from keras.models import Sequential, Model
 from keras.initializers import RandomNormal
 from keras.optimizers import Adam
@@ -115,60 +115,82 @@ class CycleGAN():
     def build_generator(self):
         """U-Net Generator"""
 
-        def conv2d(layer_input, filters, f_size=4):
-            """Layers used during downsampling"""
-            d = Conv2D(filters, kernel_size=f_size, strides=2, padding='same',kernel_initializer = self.weight_init)(layer_input)
-            d = LeakyReLU(alpha=0.2)(d)
-            d = InstanceNormalization()(d)
-            return d
+        def c7s1_k(y, k):
+            y = Conv2D(k, kernel_size=(7,7), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization()(y)
+            y = Activation('relu')(y)
+            return y
 
-        def deconv2d(layer_input, skip_input, filters, f_size=4, dropout_rate=0):
-            """Layers used during upsampling"""
-            u = UpSampling2D(size=2)(layer_input)
-            u = Conv2D(filters, kernel_size=f_size, strides=1, padding='same', activation='relu', kernel_initializer = self.weight_init)(u)
-            if dropout_rate:
-                u = Dropout(dropout_rate)(u)
-            u = InstanceNormalization()(u)
-            u = Concatenate()([u, skip_input])
-            return u
+        def d_k(y,k):
+            y = Conv2D(k, kernel_size=(3,3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization()(y)
+            y = Activation('relu')(y)
+            return y
+
+        def R_k(y, k):
+            shortcut = y
+
+            # down-sampling is performed with a stride of 2
+            y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization()(y)
+            y = Activation('relu')(y)
+            
+            y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization()(y)
+            y = Activation('relu')(y)
+            
+            y = Add()([shortcut, y])
+            y = LeakyReLU()(y)
+
+            return y
+
+        def u_k(y,k):
+            y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization()(y)
+            y = Activation('relu')(y)
+            
+            return y
+
 
         # Image input
         d0 = Input(shape=self.img_shape)
 
-        # Downsampling
-        d1 = conv2d(d0, self.gf)
-        d2 = conv2d(d1, self.gf*2)
-        d3 = conv2d(d2, self.gf*4)
-        d4 = conv2d(d3, self.gf*8)
+        y = c7s1_k(d0, 64)
+        y = d_k(y, 128)
+        y = d_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = u_k(y, 128)
+        y = u_k(y, 64)
+        output_img = c7s1_k(y, 3)
 
-        # Upsampling
-        u1 = deconv2d(d4, d3, self.gf*4)
-        u2 = deconv2d(u1, d2, self.gf*2)
-        u3 = deconv2d(u2, d1, self.gf)
-
-        u4 = UpSampling2D(size=2)(u3)
-        output_img = Conv2D(self.channels, kernel_size=4, strides=1, padding='same', activation='tanh',kernel_initializer = self.weight_init)(u4)
-
+   
         return Model(d0, output_img)
 
     def build_discriminator(self):
 
-        def d_layer(layer_input, filters, f_size=4, normalization=True):
-            """Discriminator layer"""
-            d = Conv2D(filters, kernel_size=f_size, strides=2, padding='same',kernel_initializer = self.weight_init)(layer_input)
-            d = LeakyReLU(alpha=0.2)(d)
-            if normalization:
-                d = InstanceNormalization()(d)
-            return d
+        def C_k(y,k, norm):
+            y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            if norm:
+                y = InstanceNormalization()(y)
+            y = LeakyReLU(0.2)(y)
+            return y
 
         img = Input(shape=self.img_shape)
 
-        d1 = d_layer(img, self.df, normalization=False)
-        d2 = d_layer(d1, self.df*2)
-        d3 = d_layer(d2, self.df*4)
-        d4 = d_layer(d3, self.df*8)
+        y = C_k(img, 64, False)
+        y = C_k(y, 128, True)
+        y = C_k(y, 256, True)
+        y = C_k(y, 512, True)
 
-        validity = Conv2D(1, kernel_size=4, strides=1, padding='same',kernel_initializer = self.weight_init)(d4)
+        validity = Conv2D(1, kernel_size=4, strides=1, padding='same',kernel_initializer = self.weight_init)(y)
 
         return Model(img, validity)
 
