@@ -7,6 +7,7 @@ from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
 from keras.layers import BatchNormalization, Activation, ZeroPadding2D, Add
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.convolutional import UpSampling2D, Conv2D, Conv2DTranspose
+from keras.layers.merge import add
 from keras.models import Sequential, Model
 from keras.initializers import RandomNormal
 from keras.optimizers import Adam
@@ -115,10 +116,13 @@ class CycleGAN():
     def build_generator(self):
         """U-Net Generator"""
 
-        def c7s1_k(y, k):
+        def c7s1_k(y, k, final):
             y = Conv2D(k, kernel_size=(7,7), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization()(y)
-            y = Activation('relu')(y)
+            if final:
+                y = Activation('tanh')(y)
+            else:
+                y = Activation('relu')(y)
             return y
 
         def d_k(y,k):
@@ -138,11 +142,8 @@ class CycleGAN():
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization()(y)
             y = Activation('relu')(y)
-            
-            y = Add()([shortcut, y])
-            y = LeakyReLU()(y)
 
-            return y
+            return add([shortcut, y])
 
         def u_k(y,k):
             y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
@@ -155,7 +156,7 @@ class CycleGAN():
         # Image input
         d0 = Input(shape=self.img_shape)
 
-        y = c7s1_k(d0, 64)
+        y = c7s1_k(d0, 64, False)
         y = d_k(y, 128)
         y = d_k(y, 256)
         y = R_k(y, 256)
@@ -169,8 +170,7 @@ class CycleGAN():
         y = R_k(y, 256)
         y = u_k(y, 128)
         y = u_k(y, 64)
-        y = c7s1_k(y, 3)
-        y = Activation('tanh')(y)
+        y = c7s1_k(y, 3, True)
         output_img = y
 
    
@@ -178,7 +178,7 @@ class CycleGAN():
 
     def build_discriminator(self):
 
-        def C_k(y,k, norm):
+        def C_k(y,k, norm=True):
             y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
             if norm:
                 y = InstanceNormalization()(y)
@@ -188,9 +188,9 @@ class CycleGAN():
         img = Input(shape=self.img_shape)
 
         y = C_k(img, 64, False)
-        y = C_k(y, 128, True)
-        y = C_k(y, 256, True)
-        y = C_k(y, 512, True)
+        y = C_k(y, 128)
+        y = C_k(y, 256)
+        y = C_k(y, 512)
 
         validity = Conv2D(1, kernel_size=4, strides=1, padding='same',kernel_initializer = self.weight_init)(y)
 
