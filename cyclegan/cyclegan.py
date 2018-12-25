@@ -20,8 +20,6 @@ import numpy as np
 import os
 import pickle
 
-def half_mse(y_true, y_pred):
-    return 0.5 * K.mean(K.square(y_pred - y_true), axis=-1)
 
 
 
@@ -63,10 +61,10 @@ class CycleGAN():
         # Build and compile the discriminators
         self.d_A = self.build_discriminator()
         self.d_B = self.build_discriminator()
-        self.d_A.compile(loss=half_mse,
+        self.d_A.compile(loss=self.half_mse,
             optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
-        self.d_B.compile(loss=half_mse,
+        self.d_B.compile(loss=self.half_mse,
             optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
 
@@ -112,16 +110,18 @@ class CycleGAN():
                             optimizer=Adam(0.0002, 0.5))
 
     
+    def half_mse(y_true, y_pred):
+        return 0.5 * K.mean(K.square(y_pred - y_true), axis=-1)
+
 
     def build_generator(self):
-        """U-Net Generator"""
 
         def c7s1_k(y, k, final):
             y = Conv2D(k, kernel_size=(7,7), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization()(y)
             if final:
                 y = Activation('tanh')(y)
             else:
+                y = InstanceNormalization()(y)
                 y = Activation('relu')(y)
             return y
 
@@ -139,9 +139,11 @@ class CycleGAN():
             y = InstanceNormalization()(y)
             y = Activation('relu')(y)
             
+            
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization()(y)
             y = Activation('relu')(y)
+            
 
             return add([shortcut, y])
 
@@ -149,7 +151,7 @@ class CycleGAN():
             y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization()(y)
             y = Activation('relu')(y)
-            
+    
             return y
 
 
@@ -158,18 +160,18 @@ class CycleGAN():
 
         y = d0
 
-        # y = c7s1_k(y, 64, False)
+        y = c7s1_k(y, 64, False)
         y = d_k(y, 128)
         y = d_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
         y = u_k(y, 128)
         y = u_k(y, 64)
         y = c7s1_k(y, 3, True)
@@ -182,9 +184,12 @@ class CycleGAN():
 
         def C_k(y,k, norm=True):
             y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            
             if norm:
                 y = InstanceNormalization()(y)
+
             y = LeakyReLU(0.2)(y)
+           
             return y
 
         img = Input(shape=self.img_shape)
