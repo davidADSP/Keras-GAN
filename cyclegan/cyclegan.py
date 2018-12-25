@@ -26,8 +26,8 @@ import pickle
 class CycleGAN():
     def __init__(self):
         # Input shape
-        self.img_rows = 256
-        self.img_cols = 256
+        self.img_rows = 128
+        self.img_cols = 128
         self.channels = 3
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -36,7 +36,7 @@ class CycleGAN():
         self.epoch = 0
 
         # Configure data loader
-        self.dataset_name = 'vangogh2photo'
+        self.dataset_name = 'ukiyoe2photo'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
                                       img_res=(self.img_rows, self.img_cols))
 
@@ -61,11 +61,11 @@ class CycleGAN():
         # Build and compile the discriminators
         self.d_A = self.build_discriminator()
         self.d_B = self.build_discriminator()
-        self.d_A.compile(loss=self.half_mse,
-            optimizer=Adam(0.0002, 0.5),
+        self.d_A.compile(loss='mse',
+            optimizer=Adam(0.0001, 0.5),
             metrics=['accuracy'])
-        self.d_B.compile(loss=self.half_mse,
-            optimizer=Adam(0.0002, 0.5),
+        self.d_B.compile(loss='mse',
+            optimizer=Adam(0.0001, 0.5),
             metrics=['accuracy'])
 
         # Build and compile the generators
@@ -110,9 +110,6 @@ class CycleGAN():
                             optimizer=Adam(0.0002, 0.5))
 
     
-    def half_mse(y_true, y_pred):
-        return 0.5 * K.mean(K.square(y_pred - y_true), axis=-1)
-
 
     def build_generator(self):
 
@@ -121,13 +118,13 @@ class CycleGAN():
             if final:
                 y = Activation('tanh')(y)
             else:
-                y = InstanceNormalization()(y)
+                y = InstanceNormalization(axis = -1)(y)
                 y = Activation('relu')(y)
             return y
 
         def d_k(y,k):
             y = Conv2D(k, kernel_size=(3,3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization()(y)
+            y = InstanceNormalization(axis = -1)(y)
             y = Activation('relu')(y)
             return y
 
@@ -136,20 +133,22 @@ class CycleGAN():
 
             # down-sampling is performed with a stride of 2
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization()(y)
+            y = InstanceNormalization(axis = -1)(y)
             y = Activation('relu')(y)
             
             
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization()(y)
+            y = InstanceNormalization(axis = -1)(y)
+
             y = Activation('relu')(y)
-            
 
             return add([shortcut, y])
 
         def u_k(y,k):
-            y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization()(y)
+            y = UpSampling2D()(y)
+            y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            # y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization(axis = -1)(y)
             y = Activation('relu')(y)
     
             return y
@@ -166,9 +165,9 @@ class CycleGAN():
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
-        y = R_k(y, 256)
-        y = R_k(y, 256)
-        y = R_k(y, 256)
+        # y = R_k(y, 256)
+        # y = R_k(y, 256)
+        # y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
@@ -180,13 +179,14 @@ class CycleGAN():
    
         return Model(d0, output_img)
 
+
     def build_discriminator(self):
 
         def C_k(y,k, norm=True):
             y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
             
             if norm:
-                y = InstanceNormalization()(y)
+                y = InstanceNormalization(axis = -1)(y)
 
             y = LeakyReLU(0.2)(y)
            
