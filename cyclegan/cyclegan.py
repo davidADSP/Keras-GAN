@@ -27,8 +27,8 @@ def half_mse(y_true, y_pred):
 class CycleGAN():
     def __init__(self):
         # Input shape
-        self.img_rows = 256
-        self.img_cols = 256
+        self.img_rows = 128
+        self.img_cols = 128
         self.channels = 3
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -37,7 +37,7 @@ class CycleGAN():
         self.epoch = 0
 
         # Configure data loader
-        self.dataset_name = 'vangogh2photo'
+        self.dataset_name = 'horse2zebra'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
                                       img_res=(self.img_rows, self.img_cols))
 
@@ -55,18 +55,18 @@ class CycleGAN():
         # Loss weights
         self.validation_weight = 1.0
         self.lambda_cycle = 10.0                    # Cycle-consistency loss
-        self.lambda_id = 5.0    # Identity loss
+        self.lambda_id = 2.0    # Identity loss
 
         optimizer = Adam(0.0002, 0.5)
 
         # Build and compile the discriminators
         self.d_A = self.build_discriminator()
         self.d_B = self.build_discriminator()
-        self.d_A.compile(loss=half_mse,
-            optimizer=Adam(0.0002, 0.5),
+        self.d_A.compile(loss='mse',
+            optimizer=Adam(0.0001, 0.5),
             metrics=['accuracy'])
-        self.d_B.compile(loss=half_mse,
-            optimizer=Adam(0.0002, 0.5),
+        self.d_B.compile(loss='mse',
+            optimizer=Adam(0.0001, 0.5),
             metrics=['accuracy'])
 
         # Build and compile the generators
@@ -251,41 +251,43 @@ class CycleGAN():
         os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
         r, c = 2, 4
 
-        imgs_A = self.data_loader.load_data(domain="A", batch_size=1, is_testing=True)
-        imgs_B = self.data_loader.load_data(domain="B", batch_size=1, is_testing=True)
+        for p in range(2):
 
-        # Demo (for GIF)
-        # imgs_A = self.data_loader.load_img('datasets/%s/testA/n07740461_14740.jpg' % self.dataset_name)
-        # imgs_B = self.data_loader.load_img('datasets/%s/testB/n07749192_4241.jpg' % self.dataset_name)
+            if p == 1:
+                imgs_A = self.data_loader.load_data(domain="A", batch_size=1, is_testing=True)
+                imgs_B = self.data_loader.load_data(domain="B", batch_size=1, is_testing=True)
+            else:
+                imgs_A = self.data_loader.load_img('datasets/%s/testA/test.jpg' % self.dataset_name)
+                imgs_B = self.data_loader.load_img('datasets/%s/testB/test.jpg' % self.dataset_name)
 
-        # Translate images to the other domain
-        fake_B = self.g_AB.predict(imgs_A)
-        fake_A = self.g_BA.predict(imgs_B)
-        # Translate back to original domain
-        reconstr_A = self.g_BA.predict(fake_B)
-        reconstr_B = self.g_AB.predict(fake_A)
+            # Translate images to the other domain
+            fake_B = self.g_AB.predict(imgs_A)
+            fake_A = self.g_BA.predict(imgs_B)
+            # Translate back to original domain
+            reconstr_A = self.g_BA.predict(fake_B)
+            reconstr_B = self.g_AB.predict(fake_A)
 
-        # ID the images
-        id_A = self.g_BA.predict(imgs_A)
-        id_B = self.g_AB.predict(imgs_B)
+            # ID the images
+            id_A = self.g_BA.predict(imgs_A)
+            id_B = self.g_AB.predict(imgs_B)
 
-        gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
+            gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
 
-        # Rescale images 0 - 1
-        gen_imgs = 0.5 * gen_imgs + 0.5
-        gen_imgs = np.clip(gen_imgs, 0, 1)
+            # Rescale images 0 - 1
+            gen_imgs = 0.5 * gen_imgs + 0.5
+            gen_imgs = np.clip(gen_imgs, 0, 1)
 
-        titles = ['Original', 'Translated', 'Reconstructed', 'ID']
-        fig, axs = plt.subplots(r, c, figsize=(15,7.5))
-        cnt = 0
-        for i in range(r):
-            for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt])
-                axs[i, j].set_title(titles[j])
-                axs[i,j].axis('off')
-                cnt += 1
-        fig.savefig("images/%s/%d_%d.png" % (self.dataset_name, self.epoch, batch_i))
-        plt.close()
+            titles = ['Original', 'Translated', 'Reconstructed', 'ID']
+            fig, axs = plt.subplots(r, c, figsize=(15,7.5))
+            cnt = 0
+            for i in range(r):
+                for j in range(c):
+                    axs[i,j].imshow(gen_imgs[cnt])
+                    axs[i, j].set_title(titles[j])
+                    axs[i,j].axis('off')
+                    cnt += 1
+            fig.savefig("images/%s/%d_%d_%d.png" % (self.dataset_name, p, self.epoch, batch_i))
+            plt.close()
 
     def save_model(self):
 
