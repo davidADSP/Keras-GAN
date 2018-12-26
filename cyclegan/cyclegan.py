@@ -26,8 +26,8 @@ import pickle
 class CycleGAN():
     def __init__(self):
         # Input shape
-        self.img_rows = 128
-        self.img_cols = 128
+        self.img_rows = 256
+        self.img_cols = 256
         self.channels = 3
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -109,6 +109,9 @@ class CycleGAN():
                                             self.lambda_id, self.lambda_id ],
                             optimizer=Adam(0.0002, 0.5))
 
+        self.d_A.trainable = True
+        self.d_B.trainable = True
+
     
 
     def build_generator(self):
@@ -118,13 +121,13 @@ class CycleGAN():
             if final:
                 y = Activation('tanh')(y)
             else:
-                y = InstanceNormalization(axis = -1)(y)
+                y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
                 y = Activation('relu')(y)
             return y
 
         def d_k(y,k):
             y = Conv2D(k, kernel_size=(3,3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization(axis = -1)(y)
+            y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
             y = Activation('relu')(y)
             return y
 
@@ -133,22 +136,22 @@ class CycleGAN():
 
             # down-sampling is performed with a stride of 2
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization(axis = -1)(y)
+            y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
             y = Activation('relu')(y)
             
             
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization(axis = -1)(y)
+            y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
 
             y = Activation('relu')(y)
 
             return add([shortcut, y])
 
         def u_k(y,k):
-            y = UpSampling2D()(y)
-            y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            # y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
-            y = InstanceNormalization(axis = -1)(y)
+            # y = UpSampling2D()(y)
+            # y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
             y = Activation('relu')(y)
     
             return y
@@ -165,9 +168,9 @@ class CycleGAN():
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
-        # y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
+        y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
@@ -186,7 +189,7 @@ class CycleGAN():
             y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
             
             if norm:
-                y = InstanceNormalization(axis = -1)(y)
+                y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
 
             y = LeakyReLU(0.2)(y)
            
