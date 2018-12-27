@@ -26,8 +26,8 @@ import pickle
 class CycleGAN():
     def __init__(self):
         # Input shape
-        self.img_rows = 256
-        self.img_cols = 256
+        self.img_rows = 128
+        self.img_cols = 128
         self.channels = 3
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -36,7 +36,7 @@ class CycleGAN():
         self.epoch = 0
 
         # Configure data loader
-        self.dataset_name = 'ukiyoe2photo'
+        self.dataset_name = 'cezanne2photo'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
                                       img_res=(self.img_rows, self.img_cols))
 
@@ -143,14 +143,14 @@ class CycleGAN():
             y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
 
-            y = Activation('relu')(y)
+            # y = Activation('relu')(y)
 
             return add([shortcut, y])
 
         def u_k(y,k):
-            # y = UpSampling2D()(y)
-            # y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
-            y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+            y = UpSampling2D()(y)
+            y = Conv2D(k, kernel_size=(3, 3), strides=1, padding='same', kernel_initializer = self.weight_init)(y)
+            # y = Conv2DTranspose(k, kernel_size=(3, 3), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
             y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
             y = Activation('relu')(y)
     
@@ -168,9 +168,9 @@ class CycleGAN():
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
-        y = R_k(y, 256)
-        y = R_k(y, 256)
-        y = R_k(y, 256)
+        # y = R_k(y, 256)
+        # y = R_k(y, 256)
+        # y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
         y = R_k(y, 256)
@@ -285,41 +285,44 @@ class CycleGAN():
         os.makedirs('images/%s' % self.dataset_name, exist_ok=True)
         r, c = 2, 4
 
-        imgs_A = self.data_loader.load_data(domain="A", batch_size=1, is_testing=True)
-        imgs_B = self.data_loader.load_data(domain="B", batch_size=1, is_testing=True)
+        for p in range(2):
 
-        # Demo (for GIF)
-        # imgs_A = self.data_loader.load_img('datasets/%s/testA/n07740461_14740.jpg' % self.dataset_name)
-        # imgs_B = self.data_loader.load_img('datasets/%s/testB/n07749192_4241.jpg' % self.dataset_name)
+            if p == 1:
+                imgs_A = self.data_loader.load_data(domain="A", batch_size=1, is_testing=True)
+                imgs_B = self.data_loader.load_data(domain="B", batch_size=1, is_testing=True)
+            else:
+                imgs_A = self.data_loader.load_img('datasets/%s/testA/test.jpg' % self.dataset_name)
+                imgs_B = self.data_loader.load_img('datasets/%s/testB/test.jpg' % self.dataset_name)
 
-        # Translate images to the other domain
-        fake_B = self.g_AB.predict(imgs_A)
-        fake_A = self.g_BA.predict(imgs_B)
-        # Translate back to original domain
-        reconstr_A = self.g_BA.predict(fake_B)
-        reconstr_B = self.g_AB.predict(fake_A)
+            # Translate images to the other domain
+            fake_B = self.g_AB.predict(imgs_A)
+            fake_A = self.g_BA.predict(imgs_B)
+            # Translate back to original domain
+            reconstr_A = self.g_BA.predict(fake_B)
+            reconstr_B = self.g_AB.predict(fake_A)
 
-        # ID the images
-        id_A = self.g_BA.predict(imgs_A)
-        id_B = self.g_AB.predict(imgs_B)
+            # ID the images
+            id_A = self.g_BA.predict(imgs_A)
+            id_B = self.g_AB.predict(imgs_B)
 
-        gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
+            gen_imgs = np.concatenate([imgs_A, fake_B, reconstr_A, id_A, imgs_B, fake_A, reconstr_B, id_B])
 
-        # Rescale images 0 - 1
-        gen_imgs = 0.5 * gen_imgs + 0.5
-        gen_imgs = np.clip(gen_imgs, 0, 1)
+            # Rescale images 0 - 1
+            gen_imgs = 0.5 * gen_imgs + 0.5
+            gen_imgs = np.clip(gen_imgs, 0, 1)
 
-        titles = ['Original', 'Translated', 'Reconstructed', 'ID']
-        fig, axs = plt.subplots(r, c, figsize=(15,7.5))
-        cnt = 0
-        for i in range(r):
-            for j in range(c):
-                axs[i,j].imshow(gen_imgs[cnt])
-                axs[i, j].set_title(titles[j])
-                axs[i,j].axis('off')
-                cnt += 1
-        fig.savefig("images/%s/%d_%d.png" % (self.dataset_name, self.epoch, batch_i))
-        plt.close()
+            titles = ['Original', 'Translated', 'Reconstructed', 'ID']
+            fig, axs = plt.subplots(r, c, figsize=(15,7.5))
+            cnt = 0
+            for i in range(r):
+                for j in range(c):
+                    axs[i,j].imshow(gen_imgs[cnt])
+                    axs[i, j].set_title(titles[j])
+                    axs[i,j].axis('off')
+                    cnt += 1
+            fig.savefig("images/%s/%d_%d_%d.png" % (self.dataset_name, p, self.epoch, batch_i))
+            plt.close()
+
 
     def save_model(self):
 
@@ -331,7 +334,7 @@ class CycleGAN():
         self.g_BA.save_weights('saved_model/%s/g_BA-%d.h5' % (self.dataset_name, self.epoch))
         self.g_AB.save_weights('saved_model/%s/g_AB-%d.h5' % (self.dataset_name, self.epoch))
                 
-        pickle.dump(self, open( "saved_model/%s/obj.pkl" % (self.dataset_name), "wb" ))
+        pickle.dump(self, open( "saved_model/%s/obj-%d.pkl" % (self.dataset_name, self.epoch), "wb" ))
 
 
 if __name__ == '__main__':
