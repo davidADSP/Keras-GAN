@@ -42,7 +42,7 @@ class CycleGAN():
 
 
         # Calculate output shape of D (PatchGAN)
-        patch = int(self.img_rows / 2**4)
+        patch = int(self.img_rows / 2**3)
         self.disc_patch = (patch, patch, 1)
 
         self.weight_init = RandomNormal(mean=0., stddev=0.02)
@@ -62,10 +62,10 @@ class CycleGAN():
         self.d_A = self.build_discriminator()
         self.d_B = self.build_discriminator()
         self.d_A.compile(loss='mse',
-            optimizer=Adam(0.0001, 0.5),
+            optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
         self.d_B.compile(loss='mse',
-            optimizer=Adam(0.0001, 0.5),
+            optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
 
         # Build and compile the generators
@@ -185,8 +185,8 @@ class CycleGAN():
 
     def build_discriminator(self):
 
-        def C_k(y,k, norm=True):
-            y = Conv2D(k, kernel_size=(4,4), strides=2, padding='same', kernel_initializer = self.weight_init)(y)
+        def C_k(y,k, stride = 2, norm=True):
+            y = Conv2D(k, kernel_size=(4,4), strides=stride, padding='same', kernel_initializer = self.weight_init)(y)
             
             if norm:
                 y = InstanceNormalization(axis = -1, center = False, scale = False)(y)
@@ -197,10 +197,10 @@ class CycleGAN():
 
         img = Input(shape=self.img_shape)
 
-        y = C_k(img, 64, False)
-        y = C_k(y, 128)
-        y = C_k(y, 256)
-        y = C_k(y, 512)
+        y = C_k(img, 64, stride = 2, norm = False)
+        y = C_k(y, 128, stride = 2)
+        y = C_k(y, 256, stride = 2)
+        y = C_k(y, 512, stride = 1)
 
         validity = Conv2D(1, kernel_size=4, strides=1, padding='same',kernel_initializer = self.weight_init)(y)
 
