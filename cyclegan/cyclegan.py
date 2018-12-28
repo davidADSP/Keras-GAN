@@ -5,8 +5,8 @@ from keras.datasets import mnist
 from keras_contrib.layers.normalization import InstanceNormalization
 from keras.layers import Input, Dense, Reshape, Flatten, Dropout, Concatenate
 from keras.layers import BatchNormalization, Activation, ZeroPadding2D
-from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.convolutional import UpSampling2D, Conv2D
+from keras.layers.advanced_activations import LeakyReLU, ELU
+from keras.layers.convolutional import UpSampling2D, Conv2D, Conv2DTranspose
 from keras.models import Sequential, Model
 from keras.initializers import RandomNormal
 from keras.optimizers import Adam
@@ -18,6 +18,9 @@ from data_loader import DataLoader
 import numpy as np
 import os
 import pickle
+import random
+
+from collections import deque
 
 def half_mse(y_true, y_pred):
     return 0.5 * K.mean(K.square(y_pred - y_true), axis=-1)
@@ -27,8 +30,8 @@ def half_mse(y_true, y_pred):
 class CycleGAN():
     def __init__(self):
         # Input shape
-        self.img_rows = 128
-        self.img_cols = 128
+        self.img_rows = 256
+        self.img_cols = 256
         self.channels = 3
         self.img_shape = (self.img_rows, self.img_cols, self.channels)
 
@@ -36,14 +39,17 @@ class CycleGAN():
         self.g_losses = []
         self.epoch = 0
 
+        self.buffer_A = deque(maxlen = 50)
+        self.buffer_B = deque(maxlen = 50)
+
         # Configure data loader
-        self.dataset_name = 'horse2zebra'
+        self.dataset_name = 'monet2photo'
         self.data_loader = DataLoader(dataset_name=self.dataset_name,
                                       img_res=(self.img_rows, self.img_cols))
 
 
         # Calculate output shape of D (PatchGAN)
-        patch = int(self.img_rows / 2**4)
+        patch = int(self.img_rows / 2**3)
         self.disc_patch = (patch, patch, 1)
 
         self.weight_init = RandomNormal(mean=0., stddev=0.02)
@@ -55,7 +61,7 @@ class CycleGAN():
         # Loss weights
         self.validation_weight = 1.0
         self.lambda_cycle = 10.0                    # Cycle-consistency loss
-        self.lambda_id = 2.0    # Identity loss
+        self.lambda_id = 5.0    # Identity loss
 
         optimizer = Adam(0.0002, 0.5)
 
@@ -63,10 +69,10 @@ class CycleGAN():
         self.d_A = self.build_discriminator()
         self.d_B = self.build_discriminator()
         self.d_A.compile(loss='mse',
-            optimizer=Adam(0.0001, 0.5),
+            optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
         self.d_B.compile(loss='mse',
-            optimizer=Adam(0.0001, 0.5),
+            optimizer=Adam(0.0002, 0.5),
             metrics=['accuracy'])
 
         # Build and compile the generators
@@ -110,6 +116,9 @@ class CycleGAN():
                                             self.lambda_id, self.lambda_id ],
                             optimizer=Adam(0.0002, 0.5))
 
+        self.d_A.trainable = True
+        self.d_B.trainable = True
+
     
 
     def build_generator(self):
@@ -125,7 +134,13 @@ class CycleGAN():
         def deconv2d(layer_input, skip_input, filters, f_size=4, dropout_rate=0):
             """Layers used during upsampling"""
             u = UpSampling2D(size=2)(layer_input)
-            u = Conv2D(filters, kernel_size=f_size, strides=1, padding='same', activation='relu', kernel_initializer = self.weight_init)(u)
+            u = Conv2D(filters, kernel_size=f_size, strides=1, padding='same', kernel_initializer = self.weight_init)(u) #, activation='relu'
+            u = ELU()(u)
+
+
+            # u = Conv2DTranspose(filters, kernel_size=f_size, strides=2, padding='same', activation='relu', kernel_initializer = self.weight_init)(layer_input)
+            
+            
             if dropout_rate:
                 u = Dropout(dropout_rate)(u)
             u = InstanceNormalization(axis = -1, center = False, scale = False)(u)
@@ -153,9 +168,9 @@ class CycleGAN():
 
     def build_discriminator(self):
 
-        def d_layer(layer_input, filters, f_size=4, normalization=True):
+        def d_layer(layer_input, filters, f_size=4, normalization=True, stride=2):
             """Discriminator layer"""
-            d = Conv2D(filters, kernel_size=f_size, strides=2, padding='same',kernel_initializer = self.weight_init)(layer_input)
+            d = Conv2D(filters, kernel_size=f_size, strides=stride, padding='same',kernel_initializer = self.weight_init)(layer_input)
             d = LeakyReLU(alpha=0.2)(d)
             if normalization:
                 d = InstanceNormalization(axis = -1, center = False, scale = False)(d)
@@ -166,11 +181,53 @@ class CycleGAN():
         d1 = d_layer(img, self.df, normalization=False)
         d2 = d_layer(d1, self.df*2)
         d3 = d_layer(d2, self.df*4)
-        d4 = d_layer(d3, self.df*8)
+        d4 = d_layer(d3, self.df*8, stride = 1)
 
         validity = Conv2D(1, kernel_size=4, strides=1, padding='same',kernel_initializer = self.weight_init)(d4)
 
         return Model(img, validity)
+
+
+    def train_discriminators(self, imgs_A, imgs_B, valid, fake):
+
+        # Translate images to opposite domain
+        fake_B = self.g_AB.predict(imgs_A)
+        fake_A = self.g_BA.predict(imgs_B)
+
+        self.buffer_B.append(fake_B)
+        self.buffer_A.append(fake_A)
+
+        fake_A_rnd = random.sample(self.buffer_A, min(len(self.buffer_A), len(imgs_A)))
+        fake_B_rnd = random.sample(self.buffer_B, min(len(self.buffer_B), len(imgs_B)))
+
+        # Train the discriminators (original images = real / translated = Fake)
+        dA_loss_real = self.d_A.train_on_batch(imgs_A, valid)
+        dA_loss_fake = self.d_A.train_on_batch(fake_A_rnd, fake)
+        dA_loss = 0.5 * np.add(dA_loss_real, dA_loss_fake)
+
+        dB_loss_real = self.d_B.train_on_batch(imgs_B, valid)
+        dB_loss_fake = self.d_B.train_on_batch(fake_B_rnd, fake)
+        dB_loss = 0.5 * np.add(dB_loss_real, dB_loss_fake)
+
+        # Total disciminator loss
+        d_loss_total = 0.5 * np.add(dA_loss, dB_loss)
+
+        return (
+            d_loss_total[0]
+            , dA_loss[0], dA_loss_real[0], dA_loss_fake[0]
+            , dB_loss[0], dB_loss_real[0], dB_loss_fake[0]
+            , d_loss_total[1]
+            , dA_loss[1], dA_loss_real[1], dA_loss_fake[1]
+            , dB_loss[1], dB_loss_real[1], dB_loss_fake[1]
+        )
+
+    def train_generators(self, imgs_A, imgs_B, valid):
+
+        # Train the generators
+        return self.combined.train_on_batch([imgs_A, imgs_B],
+                                                [valid, valid,
+                                                imgs_A, imgs_B,
+                                                imgs_A, imgs_B])
 
     def train(self, epochs, batch_size=1, sample_interval=50):
 
@@ -183,45 +240,11 @@ class CycleGAN():
         for epoch in range(self.epoch, epochs):
             for batch_i, (imgs_A, imgs_B) in enumerate(self.data_loader.load_batch(batch_size)):
 
-                # ----------------------
-                #  Train Discriminators
-                # ----------------------
+                # imgs_A = self.data_loader.load_img('datasets/%s/testA/test.jpg' % self.dataset_name)
+                # imgs_B = self.data_loader.load_img('datasets/%s/testB/test.jpg' % self.dataset_name)
 
-                # Translate images to opposite domain
-                fake_B = self.g_AB.predict(imgs_A)
-                fake_A = self.g_BA.predict(imgs_B)
-
-                # Train the discriminators (original images = real / translated = Fake)
-                dA_loss_real = self.d_A.train_on_batch(imgs_A, valid)
-                dA_loss_fake = self.d_A.train_on_batch(fake_A, fake)
-                dA_loss = 0.5 * np.add(dA_loss_real, dA_loss_fake)
-
-                dB_loss_real = self.d_B.train_on_batch(imgs_B, valid)
-                dB_loss_fake = self.d_B.train_on_batch(fake_B, fake)
-                dB_loss = 0.5 * np.add(dB_loss_real, dB_loss_fake)
-
-                # Total disciminator loss
-                d_loss_total = 0.5 * np.add(dA_loss, dB_loss)
-
-                d_loss = [
-                    d_loss_total[0]
-                    , dA_loss[0], dA_loss_real[0], dA_loss_fake[0]
-                    , dB_loss[0], dB_loss_real[0], dB_loss_fake[0]
-                    , d_loss_total[1]
-                    , dA_loss[1], dA_loss_real[1], dA_loss_fake[1]
-                    , dB_loss[1], dB_loss_real[1], dB_loss_fake[1]
-                ]
-
-
-                # ------------------
-                #  Train Generators
-                # ------------------
-
-                # Train the generators
-                g_loss = self.combined.train_on_batch([imgs_A, imgs_B],
-                                                        [valid, valid,
-                                                        imgs_A, imgs_B,
-                                                        imgs_A, imgs_B])
+                d_loss = self.train_discriminators(imgs_A, imgs_B, valid, fake)
+                g_loss = self.train_generators(imgs_A, imgs_B, valid)
 
                 elapsed_time = datetime.datetime.now() - start_time
 
@@ -229,7 +252,7 @@ class CycleGAN():
                 print ("[Epoch %d/%d] [Batch %d/%d] [D loss: %f, acc: %3d%%] [G loss: %05f, adv: %05f, recon: %05f, id: %05f] time: %s " \
                     % ( self.epoch, epochs,
                         batch_i, self.data_loader.n_batches,
-                        d_loss_total[0], 100*d_loss_total[1],
+                        d_loss[0], 100*d_loss[7],
                         g_loss[0],
                         np.sum(g_loss[1:3]),
                         np.sum(g_loss[3:5]),
@@ -299,7 +322,7 @@ class CycleGAN():
         self.g_BA.save_weights('saved_model/%s/g_BA-%d.h5' % (self.dataset_name, self.epoch))
         self.g_AB.save_weights('saved_model/%s/g_AB-%d.h5' % (self.dataset_name, self.epoch))
                 
-        pickle.dump(self, open( "saved_model/%s/obj.pkl" % (self.dataset_name), "wb" ))
+        pickle.dump(self, open( "saved_model/%s/obj-%d.pkl" % (self.dataset_name, self.epoch), "wb" ))
 
 
 if __name__ == '__main__':
